@@ -1,7 +1,33 @@
 node_modules
 
 /generated/prisma
+
+# Archivos de entorno y configuración sensible
 .env
+.env.*
+*.env
+*.local
+*.secret
+.envrc
+
+# Tokens/credenciales de registries
+.npmrc
+.yarnrc
+
+# Claves y certificados
+*.key
+*.pem
+*.crt
+*.pfx
+*.p12
+*.cert
+*.jks
+*.keystore
+
+# Carpetas donde podrías guardar secretos
+secrets/
+keys/
+
 .DS_Store
 .vscode
 dist
