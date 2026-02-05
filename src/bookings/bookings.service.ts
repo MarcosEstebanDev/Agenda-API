@@ -1,11 +1,15 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../utils/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   async findForUser(userId: number, from?: Date, to?: Date) {
     const where: any = { userId, cancelled: false };
@@ -49,6 +53,62 @@ export class BookingsService {
     });
   }
 
+  async getAlertsForUser(userId: number, withinMinutes = 60) {
+    const now = new Date();
+    const until = new Date(now.getTime() + withinMinutes * 60 * 1000);
+
+    const [ongoing, upcoming] = await Promise.all([
+      (this.prisma as any).booking.findMany({
+        where: {
+          userId,
+          cancelled: false,
+          startTime: { lte: now },
+          endTime: { gte: now },
+        },
+        orderBy: { startTime: 'asc' },
+      }),
+      (this.prisma as any).booking.findMany({
+        where: {
+          userId,
+          cancelled: false,
+          startTime: { gt: now, lte: until },
+        },
+        orderBy: { startTime: 'asc' },
+      }),
+    ]);
+
+    return { ongoing, upcoming };
+  }
+
+  async getAlertsForAll(isAdmin: boolean, withinMinutes = 60) {
+    if (!isAdmin) {
+      throw new ForbiddenException('Solo los administradores pueden ver alertas globales');
+    }
+
+    const now = new Date();
+    const until = new Date(now.getTime() + withinMinutes * 60 * 1000);
+
+    const [ongoing, upcoming] = await Promise.all([
+      (this.prisma as any).booking.findMany({
+        where: {
+          cancelled: false,
+          startTime: { lte: now },
+          endTime: { gte: now },
+        },
+        orderBy: { startTime: 'asc' },
+      }),
+      (this.prisma as any).booking.findMany({
+        where: {
+          cancelled: false,
+          startTime: { gt: now, lte: until },
+        },
+        orderBy: { startTime: 'asc' },
+      }),
+    ]);
+
+    return { ongoing, upcoming };
+  }
+
   async create(userId: number, dto: CreateBookingDto) {
     const start = new Date(dto.startTime);
     const end = new Date(dto.endTime);
@@ -70,7 +130,7 @@ export class BookingsService {
       throw new ForbiddenException('Ya existe una reserva en ese horario');
     }
 
-    return (this.prisma as any).booking.create({
+    const booking = await (this.prisma as any).booking.create({
       data: {
         userId,
         startTime: start,
@@ -81,6 +141,17 @@ export class BookingsService {
         house: dto.house,
       },
     });
+
+    await this.notificationsService.createForBooking({
+      userId,
+      bookingId: booking.id,
+      type: 'BOOKING_CREATED',
+      title: 'Reserva creada',
+      body: `Tu reserva del ${start.toISOString()} al ${end.toISOString()} ha sido creada`,
+      scheduledFor: start,
+    });
+
+    return booking;
   }
 
   async cancel(id: number, userId: number, isAdmin: boolean) {
@@ -93,10 +164,20 @@ export class BookingsService {
       throw new ForbiddenException('No puedes cancelar esta reserva');
     }
 
-    return (this.prisma as any).booking.update({
+    const updated = await (this.prisma as any).booking.update({
       where: { id },
       data: { cancelled: true },
     });
+
+    await this.notificationsService.createForBooking({
+      userId: booking.userId,
+      bookingId: booking.id,
+      type: 'BOOKING_CANCELLED',
+      title: 'Reserva cancelada',
+      body: 'Una de tus reservas ha sido cancelada',
+    });
+
+    return updated;
   }
 
   async update(id: number, userId: number, isAdmin: boolean, dto: UpdateBookingDto) {
@@ -137,7 +218,7 @@ export class BookingsService {
       throw new ForbiddenException('Ya existe una reserva en ese horario');
     }
 
-    return (this.prisma as any).booking.update({
+    const updated = await (this.prisma as any).booking.update({
       where: { id },
       data: {
         startTime: start,
@@ -148,5 +229,15 @@ export class BookingsService {
         house: dto.house ?? booking.house,
       },
     });
+
+    await this.notificationsService.createForBooking({
+      userId: booking.userId,
+      bookingId: booking.id,
+      type: 'BOOKING_UPDATED',
+      title: 'Reserva actualizada',
+      body: `Tu reserva ha sido actualizada. Nuevo horario: ${start.toISOString()} - ${end.toISOString()}`,
+    });
+
+    return updated;
   }
 }

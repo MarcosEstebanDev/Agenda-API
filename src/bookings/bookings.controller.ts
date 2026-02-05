@@ -5,6 +5,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { BookingAlertsResponseDto } from './dto/booking-alerts-response.dto';
 
 // Basic controller to handle booking-related HTTP requests
 @ApiTags('bookings')
@@ -28,6 +29,18 @@ export class BookingsController {
     return this.bookingsService.findForUser(req.user.userId, from, to);
   }
 
+  @Get('me/alerts')
+  // Returns current and upcoming bookings for the authenticated user
+  @ApiOkResponse({ type: BookingAlertsResponseDto, description: 'Alertas de reservas del usuario autenticado' })
+  @ApiQuery({ name: 'withinMinutes', type: Number, required: false, description: 'Ventana de tiempo hacia adelante en minutos (por defecto 60)' })
+  getMyAlerts(
+    @Req() req: any,
+    @Query('withinMinutes', ParseIntPipe) withinMinutes?: number,
+  ) {
+    const minutes = withinMinutes ?? 60;
+    return this.bookingsService.getAlertsForUser(req.user.userId, minutes);
+  }
+
   @Get()
   // Returns all bookings, usually restricted to admin users
   @ApiOkResponse({ type: [BookingResponseDto], description: 'Todas las reservas (solo admin)' })
@@ -40,6 +53,19 @@ export class BookingsController {
   ) {
     const isAdmin = req.user.role === 'ADMIN';
     return this.bookingsService.findAll(isAdmin, from, to);
+  }
+
+  @Get('alerts')
+  // Returns current and upcoming bookings for all users (admin only)
+  @ApiOkResponse({ type: BookingAlertsResponseDto, description: 'Alertas globales de reservas (solo admin)' })
+  @ApiQuery({ name: 'withinMinutes', type: Number, required: false, description: 'Ventana de tiempo hacia adelante en minutos (por defecto 60)' })
+  getGlobalAlerts(
+    @Req() req: any,
+    @Query('withinMinutes', ParseIntPipe) withinMinutes?: number,
+  ) {
+    const isAdmin = req.user.role === 'ADMIN';
+    const minutes = withinMinutes ?? 60;
+    return this.bookingsService.getAlertsForAll(isAdmin, minutes);
   }
 
   @Post()
